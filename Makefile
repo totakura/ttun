@@ -3,7 +3,7 @@
 all: ttun
 
 ttun: ttun.c
-	gcc -o $@ -levent_core $^
+	gcc -o $@ -g -O0 -levent_core $^
 
 clean:
 	rm -f ttun
