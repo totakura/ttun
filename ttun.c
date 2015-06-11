@@ -103,13 +103,18 @@ static void
 ev_swrite_cb (evutil_socket_t fd, short flags, void *cls)
 {
   struct Buffer *buf = cls;
+  int ret;
 
   assert (sock == fd);
   assert (NULL != ev_swrite);
   assert (NULL != buf);
   assert (0 == (EV_TIMEOUT & flags));
   assert (0 != (EV_WRITE & flags));
-  assert (-1 != send (sock, &buf->data[buf->off], buf->size, 0));
+  ret = send (sock, &buf->data[buf->off], buf->size, 0);
+  if (-1 == ret)
+    perror ("send()");
+  assert (-1 != ret);
+  LOG ("Wrote %d bytes to sock\n", buf->size);
   /* resume reading from TUN */
   event_add (ev_tread, NULL);
 }
@@ -300,24 +305,26 @@ main (int argc, const char *argv[])
                         tun,
                         EV_READ,
                         &ev_tread_cb, NULL);
-  ev_sread = event_new (ev_base,
-                        sock,
-                        EV_READ,
-                        &ev_sread_cb, NULL);
-  ev_twrite = event_new (ev_base,
-                         tun,
-                         EV_WRITE,
-                         &ev_twrite_cb, &in);
+  /* ev_sread = event_new (ev_base, */
+  /*                       sock, */
+  /*                       EV_READ, */
+  /*                       &ev_sread_cb, NULL); */
+  /* ev_twrite = event_new (ev_base, */
+  /*                        tun, */
+  /*                        EV_WRITE, */
+  /*                        &ev_twrite_cb, &in); */
   ev_swrite = event_new (ev_base,
                          sock,
                          EV_WRITE,
-                         &ev_swrite_cb, &out);
+                         &ev_swrite_cb, &in);
   assert (NULL != ev_tread);
+  assert (NULL != ev_swrite);
   assert (0 == event_add (ev_tread, NULL));
-  assert (0 == event_add (ev_sread, NULL));
+  /* assert (0 == event_add (ev_swrite, NULL)); We add this from ev_tread_cb */
+
   /* Don't add the write event now, we need them when there is data */
+  /* assert (0 == event_add (ev_sread, NULL));  */
   /* assert (0 == event_add (ev_twrite, NULL)); */
-  /* assert (0 == event_add (ev_swrite, NULL)); */
   assert (0 == event_base_dispatch (ev_base));
 
  cleanup:
