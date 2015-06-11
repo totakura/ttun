@@ -45,7 +45,7 @@ static struct event *ev_twrite;
 
 /* events for sending and receiving from UDP socket */
 static struct event *ev_swrite;
-static struct evetn *ev_sread;
+static struct event *ev_sread;
 
 /* Descriptors the TUN interface and UDP socket */
 static int tun;
@@ -79,19 +79,21 @@ event_sig_cb (evutil_socket_t fd, short flags, void *cls)
 static void
 ev_tread_cb (evutil_socket_t tun, short flags, void *cls)
 {
-  static char buf[MTU];
-  int nread;
+   int nread;
 
   assert (NULL != ev_tread);
   assert (NULL == cls);
   assert (0 == (EV_TIMEOUT & flags));
   assert (0 != (EV_READ & flags));
 
-  nread = read (tun, buf, MTU);
+  nread = read (tun,
+                &in.data[in.off],
+                sizeof (in.data)-in.off);
   assert (nread > 0);
   assert (nread <= MTU);
   LOG ("Read %d bytes\n", nread);
   fflush (stderr);
+  in.size = nread;
   /* write to the socket */
   event_add (ev_swrite, NULL);
 }
@@ -107,7 +109,7 @@ ev_swrite_cb (evutil_socket_t fd, short flags, void *cls)
   assert (NULL != buf);
   assert (0 == (EV_TIMEOUT & flags));
   assert (0 != (EV_WRITE & flags));
-  assert (-1 != send (sock, &buf[buf->off], buf->size, 0));
+  assert (-1 != send (sock, &buf->data[buf->off], buf->size, 0));
   /* resume reading from TUN */
   event_add (ev_tread, NULL);
 }
@@ -115,13 +117,48 @@ ev_swrite_cb (evutil_socket_t fd, short flags, void *cls)
 
 /* Write the data to the TUN interface and schedule a read on the sock */
 static void
-ev_twrite_cb (evutil_socket_t tun, short flags, void *cls)
+ev_twrite_cb (evutil_socket_t fd, short flags, void *cls)
 {
-  abort ();
+  struct Buffer *buf = cls;
+  int nwrote;
+
+  assert (tun == fd);
+  assert (NULL != ev_twrite);
+  assert (NULL != buf);
+  assert (0 == (EV_TIMEOUT & flags));
+  assert (0 != (EV_WRITE & flags));
+
+  nwrote = write (tun,
+                  &buf->data[buf->off],
+                  buf->size);
+  assert (nwrote >= 0);
+  /* resume reading from socket */
+  event_add (ev_sread, NULL);
 }
 
 /* read data from the sock and schedule a write to TUN */
+static void
+ev_sread_cb (evutil_socket_t tun, short flags, void *cls)
+{
+  int nread;
 
+  assert (NULL != ev_sread);
+  assert (NULL == cls);
+  assert (0 == (EV_TIMEOUT & flags));
+  assert (0 != (EV_READ & flags));
+
+  nread = recv (sock,
+                &out.data[out.off],
+                sizeof (out.data)-out.off,
+                0);
+  assert (nread > 0);
+  assert (nread <= MTU);
+  LOG ("Read %d bytes from socket\n", nread);
+  fflush (stderr);
+  out.size = nread;
+  /* write to the socket */
+  event_add (ev_twrite, NULL);
+}
 
 /* Opens the TUN device so that we can read/write to it.  If we do not have
    CAP_SYS_NETADMIN capability, we are restricted to use the TUN device
@@ -238,8 +275,24 @@ main (int argc, const char *argv[])
                         tun,
                         EV_READ,
                         &ev_tread_cb, NULL);
+  ev_sread = event_new (ev_base,
+                        sock,
+                        EV_READ,
+                        &ev_sread_cb, NULL);
+  ev_twrite = event_new (ev_base,
+                         tun,
+                         EV_WRITE,
+                         &ev_twrite_cb, &in);
+  ev_swrite = event_new (ev_base,
+                         sock,
+                         EV_WRITE,
+                         &ev_swrite_cb, &out);
   assert (NULL != ev_tread);
   assert (0 == event_add (ev_tread, NULL));
+  assert (0 == event_add (ev_sread, NULL));
+  /* Don't add the write event now, we need them when there is data */
+  /* assert (0 == event_add (ev_twrite, NULL)); */
+  /* assert (0 == event_add (ev_swrite, NULL)); */
   assert (0 == event_base_dispatch (ev_base));
 
  cleanup:
