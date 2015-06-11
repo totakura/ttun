@@ -193,24 +193,39 @@ open_tun (char *dev)
 
 /* creates and configures an UDP socket to the tunnel end point */
 static int
-create_udpsock (const char *ipstr, const char *portstr)
+create_udpsock (const char *bindipstr, const char *bindportstr,
+                const char *destipstr, const char *destportstr)
 {
-  struct sockaddr_in addr;
-  uint16_t port;
+  struct sockaddr_in destaddr;
+  struct sockaddr_in bindaddr;
+  uint16_t destport;
+  uint16_t bindport;
   int sock;
   int flags;
   int ret;
 
-  if (1 != sscanf (portstr, "%hu", &port))
+  if (1 != sscanf (destportstr, "%hu", &destport))
   {
-    LOG ("Invalid port: %s\n", portstr);
+    LOG ("Invalid port: %s\n", destportstr);
     return -1;
   }
-  (void) memset (&addr, 0, sizeof (addr));
-  ret = inet_pton (AF_INET, ipstr, &addr.sin_addr);
+  if (1 != sscanf (bindportstr, "%hu", &bindport))
+  {
+    LOG ("Invalid port: %s\n", bindportstr);
+    return -1;
+  }
+  (void) memset (&destaddr, 0, sizeof (destaddr));
+  (void) memset (&bindaddr, 0, sizeof (bindaddr));
+  ret = inet_pton (AF_INET, bindipstr, &bindaddr.sin_addr);
   if (0 == ret)
   {
-    LOG ("Invalid IP address: %s\n", ipstr);
+    LOG ("Invalid bind IP address: %s\n", bindipstr);
+    return -1;
+  }
+  ret = inet_pton (AF_INET, destipstr, &destaddr.sin_addr);
+  if (0 == ret)
+  {
+    LOG ("Invalid destination IP address: %s\n", destipstr);
     return -1;
   }
   if (-1 == ret)
@@ -222,14 +237,16 @@ create_udpsock (const char *ipstr, const char *portstr)
   sock = socket (AF_INET, SOCK_DGRAM, IPPROTO_UDP);
   if (sock < 0)
     return sock;
-  addr.sin_port = htons (port);
+  destaddr.sin_family = AF_INET;
+  bindaddr.sin_family = AF_INET;
+  destaddr.sin_port = htons (destport);
+  bindaddr.sin_port = htons (bindport);
+  ret = bind (sock, (const struct sockaddr *) &bindaddr, sizeof (bindaddr));
+  perror ("bind()");
+  assert (0 == ret);
   /* connect the UDP socket so that we can use send/recv with UDP sockets */
-  ret = connect (sock, (const struct sockaddr *) &addr, sizeof (addr));
-  if (0 != ret)
-  {
-    (void) close (sock);
-    return -1;
-  }
+  ret = connect (sock, (const struct sockaddr *) &destaddr, sizeof (destaddr));
+  assert (0 == ret);
   /* make socket non blocking */
   flags = fcntl (sock, F_GETFL);
   assert (0 <= flags);
@@ -245,12 +262,20 @@ main (int argc, const char *argv[])
   struct event_config *ev_cfg;
   struct event *event_sig;
   char *tun_name;
+  const char *bindipstr;
+  const char *bindportstr;
+  const char *destipstr;
+  const char *destportstr;
 
-  if (argc < 4)
+  if (argc < 6)
   {
-    LOG("ttun-create tun_dev IP port\n");
+    LOG("ttun-create tun_dev IP port DEST-IP dest-port \n");
     return 1;
   }
+  bindipstr = argv[2];
+  bindportstr = argv[3];
+  destipstr = argv[4];
+  destportstr = argv[5];
   tun = -1;
   sock = -1;
   event_enable_debug_mode ();
@@ -263,7 +288,7 @@ main (int argc, const char *argv[])
   event_sig = evsignal_new (ev_base, SIG, &event_sig_cb, NULL);
   assert (0 == evsignal_add (event_sig, NULL));
 
-  sock = create_udpsock (argv[2], argv[3]);
+  sock = create_udpsock (bindipstr, bindportstr, destipstr, destportstr);
   if (-1 == sock)
     goto cleanup;
   tun_name = strdup (argv[1]);
