@@ -170,7 +170,8 @@ ev_sread_cb (evutil_socket_t tun, short flags, void *cls)
 
 /* Opens the TUN device so that we can read/write to it.  If we do not have
    CAP_SYS_NETADMIN capability, we are restricted to use the TUN device
-   allocated for us */
+   allocated for us.  Note: the code in this function is taken from
+   http://backreference.org/2010/03/26/tuntap-interface-tutorial/ */
 static int
 open_tun (char *dev)
 {
