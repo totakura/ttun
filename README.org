@@ -1,0 +1,52 @@
+ttun
+====
+
+This is an example to show how to use TUN interfaces in Linux.
+
+To compile you need to have libevent (http://libevent.org/) installed.
+
+The compile code can be tested by running it on a host with the following setup:
+1. Create a dummy interface and add a private address to it:
+   $ ip link add link lo dummy0 type dummy
+   $ ip addr add 10.0.1.1/24 dev dummy
+
+2. We will use network name spaces two create two sites A and B which are
+   connected to each other.
+
+3. Create another dummmy interface and assign to a private address not present
+   in the previously used IP's
+   $ ip link add link lo dummy1 type dummy
+   $ ip addr add 10.0.2.1/24 dev lo
+
+4. Create two TUN devices:
+   $ ip tuntap add dev tun0 [user <username>]
+   $ ip tuntap add dev tun1 [user <username>]
+
+   `user <username>' is optional.  Do so helps to run ttun without special
+   privileges.
+
+5. Start two ttun instances as following:
+   1. ttun tun0 10.0.1.1 9000 10.0.2.1 9000
+   2. ttun tun1 10.0.2.1 9000 10.0.1.1 9000
+
+6. Assign subnets to TUN interfaces
+   1. ip addr add 10.0.101.1/24 dev tun0
+   2. ip addr add 10.0.102.1/24 dev tun0
+
+Observations:
+
+6. Ping TUN IP: this should not cause any output from either of the ttun
+   instances
+
+7. Now if you ping any IP in the subnet assigned to any of the TUN interfaces,
+   it will cause the kernel to write an ICMP packet into the TUN interface.
+   This packet is subsequently read by an ttun instance and is sent over to the
+   other TUN interface (internall through the kernel since we are using dummy
+   interfaces) via UDP.  The parameters we gave to ttun define the bind address
+   and remote address for this UDP communication.  The receiving ttun instance
+   then writes the received data into its TUN interface and it appears out of
+   the TUN interface to the kernel.  At this point, there wont be a ping reply
+   because the address we are pinging does not exist at the tunnel end point.
+
+8. What we can do to get meaninful reply for data is to experiment with `nc':
+   
