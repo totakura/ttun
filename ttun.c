@@ -156,13 +156,16 @@ ev_sread_cb (evutil_socket_t tun, short flags, void *cls)
                 &out.data[out.off],
                 sizeof (out.data)-out.off,
                 0);
-  assert (nread > 0);
+  assert (nread >= 0);
   assert (nread <= MTU);
   LOG ("Read %d bytes from socket\n", nread);
   fflush (stderr);
   out.size = nread;
+  /* FIXME: this event should be added through ev_twrite after it finishes
+     writing to the TUN interface */
+  event_add (ev_sread, NULL);
   /* write to the socket */
-  event_add (ev_twrite, NULL);
+  //event_add (ev_twrite, NULL);
 }
 
 /* Opens the TUN device so that we can read/write to it.  If we do not have
@@ -305,10 +308,10 @@ main (int argc, const char *argv[])
                         tun,
                         EV_READ,
                         &ev_tread_cb, NULL);
-  /* ev_sread = event_new (ev_base, */
-  /*                       sock, */
-  /*                       EV_READ, */
-  /*                       &ev_sread_cb, NULL); */
+  ev_sread = event_new (ev_base,
+                        sock,
+                        EV_READ,
+                        &ev_sread_cb, NULL);
   /* ev_twrite = event_new (ev_base, */
   /*                        tun, */
   /*                        EV_WRITE, */
@@ -322,8 +325,8 @@ main (int argc, const char *argv[])
   assert (0 == event_add (ev_tread, NULL));
   /* assert (0 == event_add (ev_swrite, NULL)); We add this from ev_tread_cb */
 
+  assert (0 == event_add (ev_sread, NULL));
   /* Don't add the write event now, we need them when there is data */
-  /* assert (0 == event_add (ev_sread, NULL));  */
   /* assert (0 == event_add (ev_twrite, NULL)); */
   assert (0 == event_base_dispatch (ev_base));
 
