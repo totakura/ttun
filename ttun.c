@@ -127,6 +127,7 @@ ev_twrite_cb (evutil_socket_t fd, short flags, void *cls)
   struct Buffer *buf = cls;
   int nwrote;
 
+  assert (&out == cls);
   assert (tun == fd);
   assert (NULL != ev_twrite);
   assert (NULL != buf);
@@ -137,6 +138,7 @@ ev_twrite_cb (evutil_socket_t fd, short flags, void *cls)
                   &buf->data[buf->off],
                   buf->size);
   assert (nwrote >= 0);
+  LOG ("Wrote %d bytes to TUN\n", nwrote);
   /* resume reading from socket */
   event_add (ev_sread, NULL);
 }
@@ -160,12 +162,10 @@ ev_sread_cb (evutil_socket_t tun, short flags, void *cls)
   assert (nread <= MTU);
   LOG ("Read %d bytes from socket\n", nread);
   fflush (stderr);
+  out.off = 0;
   out.size = nread;
-  /* FIXME: this event should be added through ev_twrite after it finishes
-     writing to the TUN interface */
-  event_add (ev_sread, NULL);
   /* write to the socket */
-  //event_add (ev_twrite, NULL);
+  event_add (ev_twrite, NULL);
 }
 
 /* Opens the TUN device so that we can read/write to it.  If we do not have
@@ -312,10 +312,10 @@ main (int argc, const char *argv[])
                         sock,
                         EV_READ,
                         &ev_sread_cb, NULL);
-  /* ev_twrite = event_new (ev_base, */
-  /*                        tun, */
-  /*                        EV_WRITE, */
-  /*                        &ev_twrite_cb, &in); */
+  ev_twrite = event_new (ev_base,
+                         tun,
+                         EV_WRITE,
+                         &ev_twrite_cb, &out);
   ev_swrite = event_new (ev_base,
                          sock,
                          EV_WRITE,
