@@ -323,12 +323,9 @@ main (int argc, const char *argv[])
                          &ev_swrite_cb, &in);
   assert (NULL != ev_tread);
   assert (NULL != ev_swrite);
+  /* only add read events; write events are added after reading */
   assert (0 == event_add (ev_tread, NULL));
-  /* assert (0 == event_add (ev_swrite, NULL)); We add this from ev_tread_cb */
-
   assert (0 == event_add (ev_sread, NULL));
-  /* Don't add the write event now, we need them when there is data */
-  /* assert (0 == event_add (ev_twrite, NULL)); */
   assert (0 == event_base_dispatch (ev_base));
 
  cleanup:
