@@ -30,9 +30,6 @@ The above command creates a TUN device with the name tun0 and assigns the user
 #define LOG(...)                                \
   (void) fprintf (stderr, __VA_ARGS__)
 
-/* The signal on which we bail out */
-#define SIG SIGINT
-
 /* MTU associated without interfaces */
 #define MTU 1500
 
@@ -70,7 +67,13 @@ event_sig_cb (evutil_socket_t fd, short flags, void *cls)
 {
   int sig = fd;
 
-  assert (SIG == sig);
+  switch (fd){
+  case SIGINT:
+  case SIGTERM:
+    break;
+  default:
+    assert(0);
+  }
   LOG ("Exiting..\n");
   event_base_loopexit (ev_base, NULL);
 }
@@ -91,7 +94,7 @@ ev_tread_cb (evutil_socket_t tun, short flags, void *cls)
                 sizeof (in.data)-in.off);
   assert (nread > 0);
   assert (nread <= MTU);
-  LOG ("Read %d bytes\n", nread);
+  LOG ("Read %d bytes from TUN\n", nread);
   fflush (stderr);
   in.size = nread;
   /* write to the socket */
@@ -269,7 +272,8 @@ int
 main (int argc, const char *argv[])
 {
   struct event_config *ev_cfg;
-  struct event *event_sig;
+  struct event *ev_sigint;
+  struct event *ev_sigterm;
   char *tun_name;
   const char *bindipstr;
   const char *bindportstr;
@@ -287,16 +291,24 @@ main (int argc, const char *argv[])
   destportstr = argv[5];
   tun = -1;
   sock = -1;
+  ev_sigint = NULL;
+  ev_sigterm = NULL;
+  /* initialize libevent */
   event_enable_debug_mode ();
   ev_cfg = event_config_new ();
   assert (NULL != ev_cfg);
+  /* EV_FEATURE_O1: O(1) event triggering */
   assert (0 == event_config_require_features (ev_cfg, EV_FEATURE_O1));
+  /* EV_FEATURE_FDS: both sockets and files can be used */
   assert (0 == event_config_require_features (ev_cfg, EV_FEATURE_FDS));
   ev_base = event_base_new_with_config (ev_cfg);
   assert (NULL != ev_base);
-  event_sig = evsignal_new (ev_base, SIG, &event_sig_cb, NULL);
-  assert (0 == evsignal_add (event_sig, NULL));
-
+  /* event for catching interrupt signal */
+  ev_sigint = evsignal_new (ev_base, SIGINT, &event_sig_cb, NULL);
+  assert (0 == evsignal_add (ev_sigint, NULL));
+  ev_sigterm = evsignal_new (ev_base, SIGTERM, &event_sig_cb, NULL);
+  assert (0 == evsignal_add (ev_sigterm, NULL));
+  /* create the UDP sock */
   sock = create_udpsock (bindipstr, bindportstr, destipstr, destportstr);
   if (-1 == sock)
     goto cleanup;
@@ -331,7 +343,14 @@ main (int argc, const char *argv[])
  cleanup:
   if (-1 != tun)
     (void) close (tun);
-  event_free (event_sig);
+#define event_free_not_null(ev) if (ev) event_free (ev)
+  event_free_not_null (ev_sigint);
+  event_free_not_null (ev_sigterm);
+  event_free_not_null (ev_tread);
+  event_free_not_null (ev_twrite);
+  event_free_not_null (ev_sread);
+  event_free_not_null (ev_swrite);
+#undef event_free_not_null
   event_base_free (ev_base);
   event_config_free (ev_cfg);
   //libevent_global_shutdown ();
