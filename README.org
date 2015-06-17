@@ -8,7 +8,7 @@ To compile you need to have libevent (http://libevent.org/) installed.
 The simple way to understand how this works is to test ttun on two hosts
 connected in a network:
 1. Create TUN devices on each host:
-   $ ip tuntap add dev tun0 [user <username>]
+   $ ip tuntap add dev tun0 mode tun [user <username>]
 
    `user <username>' is optional.  Do so helps to run ttun without special
    privileges.
@@ -51,47 +51,75 @@ namespaces, virtual ethernet interfaces and ethernet bridging.  Most of these
 capabilities are available in modern GNU/Linux operating systems.  This section
 is INCOMPLETE.
 
-1. Create a dummy interface and add a private address to it:
-   $ ip link add link lo dummy0 type dummy
-   $ ip addr add 10.0.1.1/24 dev dummy
+1. Create virtual ethernet interfaces
+   $ ip link add type veth
+
+   The above command will create two interfaces: veth0, veth1.  The underlying
+   concept of virtual ethernet interfaces is that they act like a pipe, anything
+   written at an end will appear at the other end, just like tunnels.
 
 2. We will use network name spaces two create two sites A and B which are
    connected to each other.
+   $ ip netns add siteA
+   $ ip netns add siteB
 
-3. Create another dummmy interface and assign to a private address not present
-   in the previously used IP's
-   $ ip link add link lo dummy1 type dummy
-   $ ip addr add 10.0.2.1/24 dev lo
+3. Add the virtual ethernet interface to each network namespace
+   $ ip link set dev veth0 netns siteA
+   $ ip link set dev veth1 netns siteB
 
-4. Create two TUN devices:
-   $ ip tuntap add dev tun0 [user <username>]
-   $ ip tuntap add dev tun1 [user <username>]
+4. Create a TUN devices in each network namespace:
+   $ ip netns exec siteA ip tuntap add dev tun0 mode tun
 
-   `user <username>' is optional.  Do so helps to run ttun without special
-   privileges.
+   Do the same for siteB.
 
-5. Start two ttun instances as following:
-   1. ttun tun0 10.0.1.1 9000 10.0.2.1 9000
-   2. ttun tun1 10.0.2.1 9000 10.0.1.1 9000
+5. Assign ip addresses to the virtual ethernet interfaces and TUN interfaces in
+   the namespaces:
+   $ ip netns exec siteA ip addr add 10.0.1.1/24 dev veth0
+   $ ip netns exec siteB ip addr add 10.0.1.2/24 dev veth1
+   $ ip netns exec siteA ip addr add 10.0.2.1/24 dev tun0
+   $ ip netns exec siteB ip addr add 10.0.2.2/24 dev tun0
 
-6. Assign subnets to TUN interfaces
-   1. ip addr add 10.0.101.1/24 dev tun0
-   2. ip addr add 10.0.102.1/24 dev tun0
+   Notice that the veth interfaces in both namespace should be in the same
+   subnet.  Similary, the TUN interfaces in both namespaces should also be in
+   the same subnet different from the subnet used for the veth interface.
 
-Observations:
+6. Bring all the veth and TUN interfaces up
+   $ ip netns exec siteA ip link set dev veth0 up
+   $ ip netns exec siteA ip link set dev tun0 up
+   $ ip netns exec siteB ip link set dev tun0 up
+   $ ip netns exec siteB ip link set dev veth1 up
 
-6. Ping TUN IP: this should not cause any output from either of the ttun
-   instances
+7. Also bring up the loopback interfaces up so that we can ping local interface
+   IPs:
+   $ ip netns exec siteA ip link set dev lo up
+   $ ip netns exec siteB ip link set dev lo up
 
-7. Now if you ping any IP in the subnet assigned to any of the TUN interfaces,
-   it will cause the kernel to write an ICMP packet into the TUN interface.
-   This packet is subsequently read by an ttun instance and is sent over to the
-   other TUN interface (internall through the kernel since we are using dummy
-   interfaces) via UDP.  The parameters we gave to ttun define the bind address
-   and remote address for this UDP communication.  The receiving ttun instance
-   then writes the received data into its TUN interface and it appears out of
-   the TUN interface to the kernel.  At this point, there wont be a ping reply
-   because the address we are pinging does not exist at the tunnel end point.
+   Now you can ping local interfaces IP addresses: ip netns exec siteA ping
+   10.0.1.1
+   You should also be able to ping the veth of siteA from siteB and vice-versa:
+   $ ip netns exec siteB ping 10.0.1.1
+   $ ip netns exec siteA ping 10.0.1.2
 
-8. What we can do to get meaninful reply for data is to experiment with `nc':
+   However, ping from siteB to siteA's TUN interface IP should not work.
+   $ ip netns exec siteB ping 10.0.2.1 #should fail
+   $ ip netns exec siteA ping 10.0.2.2 #should fail
+
+8. Start a ttun instance in each of the namespaces:
+   1. ip netns exec siteA ./ttun tun0 10.0.1.1 9000 10.0.1.2 9000
+   2. ip netns exec siteB ./ttun tun0 10.0.1.2 9000 10.0.1.1 9000
+
+   Now, ping from siteB to siteA's TUN interface IP should work.
+   $ ip netns exec siteB ping 10.0.2.1 #should work
+   $ ip netns exec siteA ping 10.0.2.2 #should work
+
+9. You may now run netcat on of the sites and connect to it from the other site
+   using the tunnel:
+   $ ip netns exec siteB nc -l -s 10.0.2.2 -p 8000 #nc listens for incoming connections
+   $ echo "Hello World" | ip netns exec siteA nc 10.0.2.2 8000
+
+   Now the first command should print "Hello World".
+
+10. Delete the network namespaces:
+    $ ip netns delete siteA
+    $ ip netns delete siteB
    
