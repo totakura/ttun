@@ -5,7 +5,52 @@ This is an example to show how to use TUN interfaces in Linux.
 
 To compile you need to have libevent (http://libevent.org/) installed.
 
-The compile code can be tested by running it on a host with the following setup:
+The simple way to understand how this works is to test ttun on two hosts
+connected in a network:
+1. Create TUN devices on each host:
+   $ ip tuntap add dev tun0 [user <username>]
+
+   `user <username>' is optional.  Do so helps to run ttun without special
+   privileges.
+
+2. Assign IP address to the TUN interfaces and bring them up.  Choose the IPs
+   from the same subnet which should be different any subnets which you already use:
+    $ ip addr add 10.x.x.x/24 dev tun0
+    $ ip link set dev tun0 up
+
+3. Start ttun instances on each host like this:
+   $ ttun tun0 <host1_IP> 8000 <host2_IP> 8000
+
+   Interchange the IP addresses for the other host.  The first IP address is the
+   one used by ttun to bind a UDP socket and receive UDP packets from the other
+   ttun instance.  The second IP address is the one to which ttun should send
+   UDP packets to.
+
+4. Try pinging the IP assigned to the local TUN interface; it should succed.  Try
+   pinging the IP assigned to the TUN interface on other host.  It should
+   succeed too and you should now be able to see the debug output from ttun.
+
+5. Start netcat on one of the hosts and bind it to a port on the local TUN interface IP:
+   $ nc -l -s <TUN_IP> -p 8000
+   The options for netcat may vary depending on the netcat installed
+
+6. From the other host open a netcat connection to the previous
+   instance through the local TUN
+   $ nc TUN_IP 8000
+
+   Here, TUN_IP is the same of both hosts.  It is assigned to the local TUN
+   interface on the first host.  The idea is that since this IP and the local
+   TUN interface IP on the second host fall into the same subnet, any packets
+   destined to that IP will be sent via the TUN interface.  The ttun instance on
+   the second host will then read those packets, send them encapsulated in UDP
+   packets to the ttun instance on the first host which will extract the packets
+   and writes to its local TUN interface.  Relpies are processed vice-versa.
+
+This is a setup to test ttun on a single host.  This requires usage of network
+namespaces, virtual ethernet interfaces and ethernet bridging.  Most of these
+capabilities are available in modern GNU/Linux operating systems.  This section
+is INCOMPLETE.
+
 1. Create a dummy interface and add a private address to it:
    $ ip link add link lo dummy0 type dummy
    $ ip addr add 10.0.1.1/24 dev dummy
