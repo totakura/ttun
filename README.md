@@ -64,13 +64,16 @@ may be incomplete.*
    concept of virtual ethernet interfaces is that they act like a pipe, anything
    written at an end will appear at the other end, just like tunnels.
 
-2. We will use network name spaces two create two sites A and B which are
-   connected to each other.
+2. We will use network name spaces two create two sites A and B.  Network
+   namespaces can be though of as containers.  This means that traffic from site
+   A will not be forwarded to site B even if both run on the same machine.
 
         ip netns add siteA
         ip netns add siteB
 
-3. Add the virtual ethernet interface to each network namespace
+3. Add the virtual ethernet interface to each network namespace.  Since we want
+   siteA and siteB to exchange traffic we add the virtual interfaces we created
+   earlier to each namespace.
 
         ip link set dev veth0 netns siteA
         ip link set dev veth1 netns siteB
